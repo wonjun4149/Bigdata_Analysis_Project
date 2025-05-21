@@ -1,0 +1,97 @@
+
+body {
+    margin: 0;
+    font-family: "Jua", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+}
+
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #2DB400;
+    color: #fff;
+}
+
+
+.logo-group {
+    display: flex;
+    align-items: center;
+}
+
+
+.logo {
+    font-size: 24px;
+    font-weight: bold;
+    color: #fff;
+    text-decoration: none;
+    margin-right: 20px; 
+}
+
+.logo:last-child {
+    margin-right: 0;
+}
+
+
+.search-box {
+    display: flex;
+    align-items: center;
+    border: 1px solid #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background-color: #fff;
+}
+
+.search-box input {
+    border: none;
+    background: #fff;
+    color: #fff;
+    outline: none;
+    padding: 5px;
+    font-size: 16px;
+    flex-grow: 1;
+}
+
+.search-box button {
+    border: none;
+    background: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.h1 {
+    padding-left: 10px;
+}
+
+
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .logo-group {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .search-box {
+        width: calc(100% - 20px);
+        margin: 10px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+    }
+    
+    .search-box input {
+        font-size: 14px;
+    }
+    
+    .search-box button {
+        font-size: 16px;
+        margin-left: 10px;
+    }
+}
