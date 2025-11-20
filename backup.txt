@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <title>원준이의 웹툰요약소</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../CSS/summary_main.css">
+
+</head>
+
+<body>
+
+  <!-- 헤더: 왼쪽 상단 로고 -->
+
+  <header>
+
+    <nav class="logo-group">
+
+      <a href="/index.html" class="logo">웹툰세상</a>
+
+      <a href="/html/recommand_main.php" class="logo">웹툰추천소</a>
+
+    </nav>
+
+  </header>
+
+
+
+  <!-- 메인: 타이틀 + 검색창을 화면 중앙에 -->
+
+  <main>
+
+    <h1>웹툰요약소</h1>
+
+    <div class="search-container">
+
+      <form id="search-form">
+
+        <input
+
+          type="text"
+
+          id="search-query"
+
+          class="search-input"
+
+          placeholder="검색어를 입력하세요"
+
+          autocomplete="off"
+
+        />
+
+        <button type="submit" class="search-btn">🔍</button>
+
+      </form>
+
+    </div>
+
+  </main>
+
+
+
+  <!-- 검색 결과 팝업 -->
+
+  <div class="popup" id="search-popup">
+
+    <div class="popup-header">검색 결과</div>
+
+    <div class="popup-content">
+
+      <p><strong>웹툰 제목:</strong> <span id="webtoon-title"></span></p>
+
+      <p><strong>연재 요일:</strong> <span id="webtoon-day"></span></p>
+
+      <p><strong>마지막 화:</strong> <span id="webtoon-last"></span></p>
+
+      <div class="episode-input-group">
+
+        <label for="start-episode">시작 화:</label>
+
+        <input type="number" id="start-episode" placeholder="1" />
+
+      </div>
+
+      <div class="episode-input-group">
+
+        <label for="end-episode">마지막 화:</label>
+
+        <input type="number" id="end-episode" placeholder="3" />
+
+      </div>
+
+    </div>
+
+    <div class="popup-footer">
+
+      <button id="submit-request">요약 요청</button>
+
+      <button type="button" onclick="closePopup()">닫기</button>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- 진행 팝업 -->
+
+  <div class="popup" id="progress-popup">
+
+    <div class="popup-header">요약 진행</div>
+
+    <div class="popup-content">
+
+      <p id="progress-text">요약중...</p>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- 요약 결과 팝업 -->
+
+  <div class="popup" id="result-popup">
+
+    <div class="popup-header">요약 결과</div>
+
+    <div class="popup-content">
+
+      <p id="page-info"></p>
+
+      <p id="summary-text"></p>
+
+    </div>
+
+    <div class="popup-footer">
+
+      <button id="prev-page">이전</button>
+
+      <button id="next-page">다음</button>
+
+      <button type="button" onclick="closePopup()">닫기</button>
+
+    </div>
+
+  </div>
+
+
+
+  <script>
+
+    let currentWebtoonId = null;
+
+    let maxEpisode = 0;
+
+    let pages = [];
+
+    let pageRanges = [];
+
+    let currentPage = 0;
+
+
+
+    function openPopup(id) {
+
+      document.querySelectorAll('.popup').forEach(p => p.style.display = 'none');
+
+      document.getElementById(id).style.display = 'block';
+
+    }
+
+    function closePopup() {
+
+      document.querySelectorAll('.popup').forEach(p => p.style.display = 'none');
+
+    }
+
+
+
+    document.getElementById('search-form').addEventListener('submit', e => {
+
+      e.preventDefault();
+
+      const q = document.getElementById('search-query').value.trim();
+
+      if (!q) return alert('검색어를 입력하세요.');
+
+
+
+      fetch(`/php/search_webtoon.php?title=${encodeURIComponent(q)}`)
+
+        .then(r => r.json())
+
+        .then(data => {
+
+          if (data.error) return alert(data.error);
+
+          document.getElementById('webtoon-title').textContent = data.title;
+
+          document.getElementById('webtoon-day').textContent = data.day;
+
+          document.getElementById('webtoon-last').textContent = data.last;
+
+          currentWebtoonId = data.S_N;
+
+          maxEpisode = parseInt(data.last, 10);
+
+          openPopup('search-popup');
+
+        })
+
+        .catch(err => {
+
+          console.error(err);
+
+          alert('검색 중 문제가 발생했습니다.');
+
+        });
+
+    });
+
+
+
+    document.getElementById('submit-request').addEventListener('click', () => {
+
+      const startEp = parseInt(document.getElementById('start-episode').value, 10);
+
+      const endEp = parseInt(document.getElementById('end-episode').value, 10);
+
+      if (isNaN(startEp) || isNaN(endEp))
+
+        return alert('시작 화와 마지막 화를 입력하세요.');
+
+      if (startEp < 1 || endEp > maxEpisode || startEp > endEp)
+
+        return alert(`1 ≤ 시작 화 ≤ 마지막 화 ≤ ${maxEpisode} 이어야 합니다.`);
+
+
+
+      // 페이지 분할: 15화씩
+
+      pages = [];
+
+      pageRanges = [];
+
+      currentPage = 0;
+
+      for (let i = startEp; i <= endEp; i += 15) {
+
+        const chunkStart = i;
+
+        const chunkEnd = Math.min(i + 14, endEp);
+
+        pageRanges.push({ start: chunkStart, end: chunkEnd });
+
+      }
+
+
+
+      const fetchPromises = pageRanges.map(range =>
+
+        fetch(`/php/get_summary.php?S_N=${currentWebtoonId}&start=${range.start}&end=${range.end}`)
+
+          .then(r => r.json())
+
+          .then(data => {
+
+            if (data.result) return data.result;
+
+            throw new Error(data.error);
+
+          })
+
+      );
+
+
+
+      openPopup('progress-popup');
+
+      Promise.all(fetchPromises)
+
+        .then(results => {
+
+          pages = results;
+
+          updateSummaryDisplay();
+
+          openPopup('result-popup');
+
+        })
+
+        .catch(err => {
+
+          console.error(err);
+
+          alert('요약 요청 중 문제가 발생했습니다: ' + err.message);
+
+          closePopup();
+
+        });
+
+    });
+
+
+
+    function updateSummaryDisplay() {
+
+      const infoEl = document.getElementById('page-info');
+
+      const textEl = document.getElementById('summary-text');
+
+      const prevBtn = document.getElementById('prev-page');
+
+      const nextBtn = document.getElementById('next-page');
+
+      const range = pageRanges[currentPage];
+
+      infoEl.textContent = `Phase ${currentPage + 1}: ${range.start}화~${range.end}화`;
+
+      textEl.textContent = pages[currentPage];
+
+      prevBtn.disabled = currentPage === 0;
+
+      nextBtn.disabled = currentPage === pages.length - 1;
+
+    }
+
+
+
+    document.getElementById('prev-page').addEventListener('click', () => {
+
+      if (currentPage > 0) {
+
+        currentPage--;
+
+        updateSummaryDisplay();
+
+      }
+
+    });
+
+    document.getElementById('next-page').addEventListener('click', () => {
+
+      if (currentPage < pages.length - 1) {
+
+        currentPage++;
+
+        updateSummaryDisplay();
+
+      }
+
+    });
+
+  </script>
+
+</body>
+
+</html>
+
+========================================================================
+2025/08/12
+
+
+<?php
+ini_set('display_errors', 1);          // 화면에 오류를 표시하도록 설정
+ini_set('display_startup_errors', 1); // 시작 오류도 표시하도록 설정
+error_reporting(E_ALL);               // 모든 종류의 오류를 보고하도록 설정
+
+// AJAX 요청은 POST 방식으로 들어온다고 가정합니다.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $userInput = $_POST['text'] ?? '';
+
+    // 입력값 유효성 검사
+    if (empty($userInput)) {
+        echo json_encode(['error' => '검색어를 입력해주세요.']);
+        exit; // 스크립트 종료
+    }
+
+    // Python 스크립트 경로 및 실행 파일 설정
+    $pythonScriptPath = "/var/www/html/Python/recommand.py"; // 실제 경로로 수정해주세요.
+    $pythonExecutable = "python3"; // 또는 "python"
+
+    // Python 스크립트 실행 명령어 준비
+    // escapeshellcmd는 명령어 자체의 위험한 문자 방지, addslashes는 Python으로 전달될 문자열 내 따옴표 처리
+    $command = $pythonExecutable . " " . escapeshellcmd($pythonScriptPath) . " '" . addslashes($userInput) . "'";
+    
+    // Python 스크립트 실행 (표준 오류도 함께 캡처)
+    $output = shell_exec($command . " 2>&1");
+
+    // Python 스크립트 실행 결과 확인
+    if ($output === null) {
+        echo json_encode(['error' => 'Python 스크립트 실행 결과가 없습니다 (null). 서버 로그를 확인하세요.']);
+        exit; // 스크립트 종료
+    }
+
+    // Python 출력 결과를 JSON으로 디코딩
+    $decodedOutput = json_decode($output, true);
+
+    // JSON 디코딩 오류 확인
+    if ($decodedOutput === null && json_last_error() !== JSON_ERROR_NONE) {
+        echo json_encode([
+            'error' => 'Python 응답 JSON 파싱 오류',
+            'json_error_message' => json_last_error_msg(),
+              //'raw_output_for_debug' => htmlspecialchars($output) // 디버깅 시에만 이 줄의 주석을 해제하여 확인
+        ]);
+        exit; // 스크립트 종료
+    }
+
+    // Python 스크립트 내부에서 발생한 오류 확인
+    if (isset($decodedOutput['error'])) {
+        echo json_encode(['error' => 'Python 스크립트 내부 오류: ' . htmlspecialchars($decodedOutput['error'])]);
+        exit; // 스크립트 종료
+    }
+
+    // 'recommended' 키 또는 배열 형식 확인
+    if (!isset($decodedOutput['recommended']) || !is_array($decodedOutput['recommended'])) {
+        echo json_encode([
+            'error' => 'Python 응답에 "recommended" 배열이 없거나 형식이 올바르지 않습니다.',
+            // 'decoded_output_for_debug' => $decodedOutput // 디버깅 시에만 이 줄의 주석을 해제하여 확인
+        ]);
+        exit; // 스크립트 종료
+    }
+
+    $snListFromPython = $decodedOutput['recommended'];
+
+    // Python으로부터 받은 S_N 리스트가 비어있거나, 추천 결과가 없다는 메시지를 포함하는지 확인
+    if (empty($snListFromPython) || (count($snListFromPython) === 1 && strpos($snListFromPython[0], '추천할 웹툰을 찾을 수 없습니다') !== false)) {
+        echo json_encode(['error' => '추천할 웹툰을 찾을 수 없습니다. (Python이 결과를 찾지 못함)']);
+        exit; // 스크립트 종료
+    }
+    
+    // 유효한 S_N (숫자로만 구성된 문자열)만 필터링
+    $validSnList = [];
+    foreach ($snListFromPython as $sn_item) {
+        if (is_string($sn_item) && ctype_digit($sn_item)) {
+            $validSnList[] = $sn_item;
+        }
+    }
+
+    if (empty($validSnList)) {
+        echo json_encode(['error' => 'Python으로부터 유효한 웹툰 추천 S_N 값을 받지 못했습니다.']);
+        exit; // 스크립트 종료
+    }
+    
+    // 데이터베이스 연결 설정 (실제 환경에 맞게 수정)
+    $db_host = "localhost";
+    $db_user = "root";
+    $db_pass = "123"; // 실제 비밀번호로 변경
+    $db_name = "webtoon";
+
+    $connection = new mysqli($db_host, $db_user, $db_pass, $db_name);
+
+    // 데이터베이스 연결 오류 확인
+    if ($connection->connect_error) {
+        echo json_encode(['error' => '데이터베이스 연결 오류: ' . $connection->connect_error]);
+        exit; // 스크립트 종료
+    }
+    $connection->set_charset("utf8mb4"); // 문자 인코딩 설정
+
+    // SQL 쿼리 준비 (IN 절 사용)
+    $placeholders = implode(',', array_fill(0, count($validSnList), '?'));
+    // webtoon_info 테이블에 day, last 컬럼이 실제로 존재하는지 확인 필요
+    $query = "SELECT title, tag, summary, S_N, day, last FROM webtoon_info WHERE S_N IN ($placeholders)";
+
+    $stmt = $connection->prepare($query);
+
+    // SQL 쿼리 준비 오류 확인
+    if ($stmt === false) {
+        echo json_encode(['error' => 'SQL 쿼리 준비 중 오류 발생: ' . $connection->error]);
+        $connection->close();
+        exit; // 스크립트 종료
+    }
+
+    // 파라미터 바인딩 (S_N 값들은 문자열로 가정)
+    $types = str_repeat('s', count($validSnList));
+    $stmt->bind_param($types, ...$validSnList);
+
+    // SQL 쿼리 실행
+    if (!$stmt->execute()) {
+        echo json_encode(['error' => 'SQL 실행 오류: ' . $stmt->error]);
+        $stmt->close();
+        $connection->close();
+        exit; // 스크립트 종료
+    }
+
+    $result = $stmt->get_result();
+
+    // 데이터베이스 조회 결과 확인
+    if ($result->num_rows === 0) {
+        echo json_encode(['error' => '해당하는 웹툰 정보를 데이터베이스에서 찾을 수 없습니다. (S_N 조회 결과 없음)']);
+        $stmt->close();
+        $connection->close();
+        exit; // 스크립트 종료
+    }
+
+    // 결과 처리
+    $webtoonInfo = [];
+    while ($row = $result->fetch_assoc()) {
+        // day, last 컬럼이 없을 경우를 대비하여 null 병합 연산자 사용
+        $webtoonInfo[] = [
+            'title'   => $row['title'] ?? '제목 없음',
+            'day'     => $row['day'] ?? '요일 정보 없음', // webtoon_info 테이블에 'day' 컬럼이 있는지 확인
+            'last'    => $row['last'] ?? '최신화 정보 없음', // webtoon_info 테이블에 'last' 컬럼이 있는지 확인
+            'tag'     => $row['tag'] ?? '태그 없음',
+            'summary' => $row['summary'] ?? '요약 없음',
+            'S_N'     => $row['S_N'] ?? 'S_N 없음'
+        ];
+    }
+
+    // 최종 성공 응답
+    echo json_encode(['recommended' => $webtoonInfo]);
+
+    // 리소스 정리
+    $stmt->close();
+    $connection->close();
+    exit; // 스크립트 종료 (필수!)
+
+} else {
+    // POST 요청이 아닐 경우 (예: 브라우저에서 직접 URL을 입력하여 접속)
+    // 이 경우에는 아래 HTML 부분이 그대로 표시될 수 있습니다.
+    // 하지만 JavaScript의 fetch 요청은 POST이므로, 위 로직에서 처리되고 exit 되어야 합니다.
+    // 만약 이 PHP 파일이 오직 API 엔드포인트로만 사용된다면, 이 else 블록은 필요 없거나
+    // 접근 방식이 잘못되었음을 알리는 간단한 메시지만 출력할 수 있습니다.
+    // echo "잘못된 접근 방식입니다.";
+}
+
+// --------------------------------------------------------------------
+// 중요: 위 if ($_SERVER['REQUEST_METHOD'] === 'POST') 블록 내에서
+// 모든 경우에 대해 echo json_encode(...) 후 exit; 로 끝나야 합니다.
+// 그렇지 않으면 이 PHP 파일의 나머지 HTML 부분이 응답에 포함됩니다.
+// --------------------------------------------------------------------
+?>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>원준이의 웹툰추천소</title>
+    <link rel="stylesheet" href="/CSS/recommand_main.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+    <script>
+    async function handleSearch() {
+        const userInput = document.getElementById('search-input').value;
+        const resultDiv = document.getElementById('result');
+
+        if (!userInput) {
+            alert('검색어를 입력해주세요.');
+            return;
+        }
+        
+        resultDiv.innerHTML = '<p>추천을 검색 중입니다...</p>';
+
+        try {
+            const response = await fetch('/html/recommand_main.php', { // PHP 파일 경로가 올바른지 확인
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `text=${encodeURIComponent(userInput)}`
+            });
+
+            const responseText = await response.text(); // 서버 응답을 먼저 텍스트로 받음
+            let data;
+
+            try {
+                data = JSON.parse(responseText); // 텍스트를 JSON으로 파싱 시도
+            } catch (e) {
+                // JSON 파싱 실패 시, 개발자에게는 오류와 함께 서버의 원시 응답을 보여주고,
+                // 사용자에게는 간단한 오류 메시지를 보여줌.
+                console.error('JSON Parsing Error:', e);
+                console.error('Server Response Text:', responseText); // 개발자 콘솔에 원시 응답 출력
+                resultDiv.innerHTML = `<p>오류: 서버로부터 받은 응답을 처리할 수 없습니다. (응답 형식 오류)</p>`;
+                // alert('서버 응답 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'); // 사용자에게 보여줄 메시지
+                return;
+            }
+
+            if (data.error) {
+                // 서버가 JSON 형식으로 오류 메시지를 보낸 경우
+                alert(data.error); // alert보다는 resultDiv에 표시하는 것이 더 좋을 수 있음
+                resultDiv.innerHTML = `<p>오류: ${data.error}</p>`;
+            } else if (data.recommended && data.recommended.length > 0) {
+                let resultHTML = '<div class="webtoon-cards-container">';
+                data.recommended.forEach((webtoon) => {
+                    const webtoonUrl = `https://comic.naver.com/webtoon/list?titleId=${webtoon.S_N}`;
+                    resultHTML += `
+                        <div class="webtoon-card" onclick="window.location.href='${webtoonUrl}'">
+                            <h3 class="webtoon-title">${webtoon.title || '제목 정보 없음'}</h3>
+                            <p class="webtoon-tag"><strong>태그:</strong><br> ${webtoon.tag || '태그 정보 없음'}</p>
+                            <p class="webtoon-summary"><strong>요약:</strong><br> ${webtoon.summary || '요약 정보 없음'}</p>
+                        </div>
+                    `;
+                });
+                resultHTML += '</div>';
+                resultDiv.innerHTML = resultHTML;
+            } else {
+                 // 추천 결과는 있지만 내용이 비어있거나, recommended 키가 있지만 빈 배열인 경우
+                 resultDiv.innerHTML = '<p>추천할 웹툰을 찾을 수 없습니다.</p>';
+            }
+        } catch (error) {
+            // fetch 자체의 실패 또는 예기치 않은 JavaScript 오류
+            console.error('Fetch/JavaScript Error:', error);
+            resultDiv.innerHTML = '<p>추천 처리 중 네트워크 또는 스크립트 오류가 발생했습니다.</p>';
+            // alert('추천 처리 중 오류가 발생했습니다.');
+        }
+    }
+    </script>
+</head>
+<body>
+    <header>
+        <div class="logo-group">
+            <a href="/index.html" class="logo">웹툰세상</a>
+            <a href="/html/summary_main.html" class="logo">웹툰요약소</a>
+        </div>
+    </header>
+    <main>
+        <h1>웹툰추천소</h1>
+        <div class="search-container">
+            <input id="search-input" type="text" placeholder="원하는 스타일의 웹툰을 입력하세요">
+            <button onclick="handleSearch()">&#128269;</button>
+        </div>
+        <div id="result"></div> </main>
+</body>
+</html>
+
+====
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import re
+import pymysql
+import google.generativeai as genai  # Gemini API용 라이브러리
+
+# --- Google API 키 설정 ---
+GOOGLE_API_KEY = "AIzaSyA92rRzvNrYxm2ulzSm9CKzFGh7pnXHtW0"  # 실제 유효한 API 키로 교체하세요
+if not GOOGLE_API_KEY:
+    print(json.dumps({"error": "Google API 키가 설정되지 않았습니다."}, ensure_ascii=False))
+    sys.exit(1)
+genai.configure(api_key=GOOGLE_API_KEY)
+
+
+# --- 데이터베이스 설정 (환경에 맞게 수정) ---
+db_config = {
+    "host": "localhost",
+    "user": "root",      # PHP에서 사용하는 DB 사용자와 일치시키거나 권한 확인 필요
+    "password": "123",  # PHP에서 사용하는 DB 비밀번호와 일치시키거나 권한 확인 필요
+    "database": "webtoon",
+    "charset": "utf8mb4"
+}
+
+# recommend.py 파일의 extract_keywords 함수 수정 예시
+
+def extract_keywords(user_input):
+    """
+    Gemini API를 사용하여 사용자 입력에서 핵심 키워드를 추출
+    """
+    try:
+        model = genai.GenerativeModel("gemini-1.5-pro-latest")
+        prompt = f"다음 사용자 요청에서 중요한 키워드를 2~5개 추출해서 쉼표(,)로 구분된 문자열 형태로 알려줘: \"{user_input}\""
+        response = model.generate_content(prompt)
+
+        keywords_str = ""
+        if hasattr(response, 'text') and response.text:
+            keywords_str = response.text.strip()
+        elif hasattr(response, 'parts') and response.parts:
+            keywords_str = "".join(part.text for part in response.parts if hasattr(part, 'text')).strip()
+        
+
+        if not keywords_str:
+            print("Gemini API로부터 빈 키워드 문자열을 받았습니다.")
+            # PHP에서 오류로 처리할 수 있도록 JSON 반환 (선택적, 또는 빈 리스트 반환)
+            # print(json.dumps({"error": "API로부터 키워드를 추출하지 못했습니다."}, ensure_ascii=False))
+            return [] # 빈 리스트 반환
+
+        keywords_list = [keyword.strip() for keyword in keywords_str.split(',') if keyword.strip()]
+        
+        processed_keywords = []
+        for keyword in keywords_list:
+            clean_keyword = re.sub(r'[^\w\s]', '', keyword) 
+            if clean_keyword:
+                processed_keywords.append(clean_keyword)
+        
+        
+        if not processed_keywords:
+            print("유효한 키워드가 추출되지 않았습니다.")
+        
+        return list(set(processed_keywords))
+
+    except Exception as e:
+        error_message = f"키워드 추출 중 오류 발생: {str(e)}"
+
+        print(json.dumps({"error": error_message}, ensure_ascii=False)) # PHP 호환성을 위해
+        return None
+
+def search_webtoon(keywords):
+    """
+    추출된 키워드를 기반으로 webtoon_info, webtoon_text 테이블에서
+    매칭도가 높은 웹툰(S_N)을 상위 3개 검색
+    """
+    # 키워드가 없는 경우 빈 리스트나 적절한 메시지 반환
+    if not keywords:
+        # 이 메시지는 recommend_webtoon 함수에서 "키워드 추출 실패" 메시지와 중복될 수 있으므로,
+        # 여기서 직접 JSON 에러를 출력하거나, None을 반환하여 호출한 쪽에서 처리하도록 할 수 있습니다.
+        # print(json.dumps({"error": "검색할 키워드가 없습니다."}, ensure_ascii=False))
+        return "추천할 웹툰을 찾을 수 없습니다." # 또는 빈 리스트 []
+
+    # search_webtoon 함수 내
+    connection = pymysql.connect(
+        host=db_config["host"],  # <--- "host" 이름표를 사용해서 값을 가져옴
+        user=db_config["user"],
+        password=db_config["password"],
+        database=db_config["database"],
+        charset=db_config["charset"]
+    )
+
+    try:
+        with connection.cursor() as cursor:
+
+            conditions = []
+            for keyword in keywords:
+                conditions.append(f"(wi.tag LIKE '%{keyword}%' OR wi.summary LIKE '%{keyword}%' OR wt.line LIKE '%{keyword}%')")
+            
+
+            keyword_condition_sql = " OR ".join(conditions)
+            
+
+            
+            select_keyword_matches = []
+            for i, keyword in enumerate(keywords):
+                select_keyword_matches.append(f"""
+                    (CASE 
+                        WHEN (wi.tag LIKE '%{keyword}%' OR 
+                              wi.summary LIKE '%{keyword}%' OR 
+                              EXISTS (SELECT 1 FROM webtoon_text wt_sub WHERE wt_sub.S_N = wi.S_N AND wt_sub.line LIKE '%{keyword}%')) 
+                        THEN 1 
+                        ELSE 0 
+                    END)
+                """)
+            
+            if not select_keyword_matches: # 키워드가 없는 경우
+                 return "추천할 웹툰을 찾을 수 없습니다."
+
+
+            query = f"""
+                SELECT
+                    wi.title,
+                    wi.S_N,
+                    ({ ' + '.join(select_keyword_matches) }) AS keyword_match_count
+                FROM webtoon_info wi
+                WHERE ( {' OR '.join(f"wi.tag LIKE '%{k}%' OR wi.summary LIKE '%{k}%' OR EXISTS (SELECT 1 FROM webtoon_text wt_sub WHERE wt_sub.S_N = wi.S_N AND wt_sub.line LIKE '%{k}%')" for k in keywords)} )
+                GROUP BY wi.S_N, wi.title 
+                ORDER BY keyword_match_count DESC
+                LIMIT 3;
+            """
+
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            if results:
+                # S_N (row[1])을 문자열로 반환
+                return [str(row[1]) for row in results]
+            else:
+                return "추천할 웹툰을 찾을 수 없습니다."
+    except pymysql.MySQLError as e:
+        # 데이터베이스 오류 발생 시 JSON 형태로 오류 메시지 출력
+        error_message = f"DB 검색 중 오류 발생: {str(e)}"
+        print(json.dumps({"error": error_message}, ensure_ascii=False))
+        return None # 또는 "DB 검색 오류" 등의 문자열 반환하여 PHP에서 처리
+    finally:
+        connection.close()
+
+def recommend_webtoon(user_input):
+    """
+    전체 추천 로직:
+    1. 키워드를 추출
+    2. 추출된 키워드로 DB 검색
+    3. S_N 목록 반환
+    """
+    keywords = extract_keywords(user_input)
+    
+    # extract_keywords에서 오류 발생 시 None이 반환되고, PHP에서 처리할 JSON 오류 메시지가 이미 출력됨
+    if keywords is None:
+
+        return {"error": "키워드 추출에 실패했습니다. (내부 오류 발생)"} # 이 메시지는 extract_keywords에서 출력된 JSON에 덮어쓰이지 않도록 주의
+
+    if not keywords: # 키워드가 비어있는 리스트일 경우
+        return {"recommended": ["키워드를 찾을 수 없거나, 유효한 키워드가 없습니다."]}
+
+
+    search_result = search_webtoon(keywords)
+
+    if search_result is None: # DB 검색 중 오류 발생 (search_webtoon에서 JSON 오류 출력됨)
+        return {"error": "웹툰 검색 중 오류가 발생했습니다. (DB 오류 가능성)"}
+    
+    if isinstance(search_result, str): # "추천할 웹툰을 찾을 수 없습니다." 와 같은 문자열 메시지
+        return {"recommended": [search_result]}
+    
+    # 성공적으로 S_N 리스트를 받은 경우
+    return {"recommended": search_result}
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        # 이 오류는 PHP 스크립트 실행 시점에서 발생하지 않도록 PHP에서 입력값 검증을 합니다.
+        # 터미널에서 직접 실행 시를 대비한 구문입니다.
+        print(json.dumps({"error": "사용자 입력이 필요합니다."}, ensure_ascii=False))
+        sys.exit(0) # PHP에서 shell_exec로 실행될 때는 이 exit 코드가 PHP에 영향을 줄 수 있음
+
+    user_input = sys.argv[1]
+    
+    # recommend_webtoon이 직접 딕셔너리(JSON 구조)를 반환하도록 수정했으므로,
+    # 해당 결과를 바로 JSON으로 출력합니다.
+    recommendation_result = recommend_webtoon(user_input)
+    
+    # 최종 출력은 항상 JSON 형태가 되도록 합니다.
+    print(json.dumps(recommendation_result, ensure_ascii=False))
+
+
+
+====================================================================================================================================
+2025-08-25
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>원준이의 웹툰요약소</title>
+  <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../CSS/summary_main.css">
+</head>
+<body>
+  <header>
+    <nav class="logo-group">
+      <a href="/index.html" class="logo">웹툰세상</a>
+      <a href="/html/recommand_main.php" class="logo">웹툰추천소</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>웹툰요약소</h1>
+    <div class="search-container">
+      <form id="search-form">
+        <input
+          type="text"
+          id="search-query"
+          class="search-input"
+          placeholder="검색어를 입력하세요"
+          autocomplete="off"
+        />
+        <button type="submit" class="search-btn">🔍</button>
+      </form>
+    </div>
+  </main>
+
+  <div class="popup" id="search-popup">
+    <div class="popup-header">검색 결과</div>
+    <div class="popup-content">
+      <p><strong>웹툰 제목:</strong> <span id="webtoon-title"></span></p>
+      <p><strong>연재 요일:</strong> <span id="webtoon-day"></span></p>
+      <p><strong>마지막 화:</strong> <span id="webtoon-last"></span></p>
+      <div class="episode-input-group">
+        <label for="start-episode">시작 화:</label>
+        <input type="number" id="start-episode" placeholder="1" />
+      </div>
+      <div class="episode-input-group">
+        <label for="end-episode">마지막 화:</label>
+        <input type="number" id="end-episode" placeholder="3" />
+      </div>
+    </div>
+    <div class="popup-footer">
+      <button id="submit-request">요약 요청</button>
+      <button type="button" onclick="closePopup()">닫기</button>
+    </div>
+  </div>
+
+  <div class="popup" id="progress-popup">
+    <div class="popup-header">요약 진행</div>
+    <div class="popup-content">
+      <p id="progress-text">요약중...</p>
+    </div>
+  </div>
+
+  <div class="popup" id="result-popup">
+    <div class="popup-header">요약 결과</div>
+    <div class="popup-content">
+      <p id="page-info"></p>
+      <p id="summary-text" style="white-space: pre-wrap;"></p>
+    </div>
+    <div class="popup-footer">
+      <button id="prev-page">이전</button>
+      <button id="next-page">다음</button>
+      <button type="button" onclick="closePopup()">닫기</button>
+    </div>
+  </div>
+
+  <script>
+    let currentWebtoonId = null;
+    let maxEpisode = 0;
+    let pages = []; // 각 chunk의 요약 결과를 저장
+    let pageRanges = []; // 각 chunk의 시작/종료 화 정보를 저장
+    let currentPage = 0; // 현재 보여주는 chunk의 인덱스
+
+    function openPopup(id) {
+      document.querySelectorAll('.popup').forEach(p => p.style.display = 'none');
+      document.getElementById(id).style.display = 'block';
+    }
+    function closePopup() {
+      document.querySelectorAll('.popup').forEach(p => p.style.display = 'none');
+    }
+
+    document.getElementById('search-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const q = document.getElementById('search-query').value.trim();
+      if (!q) return alert('검색어를 입력하세요.');
+
+      fetch(`/php/search_webtoon.php?title=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) return alert(data.error);
+          document.getElementById('webtoon-title').textContent = data.title;
+          document.getElementById('webtoon-day').textContent = data.day;
+          document.getElementById('webtoon-last').textContent = data.last;
+          currentWebtoonId = data.S_N;
+          maxEpisode = parseInt(data.last, 10);
+          openPopup('search-popup');
+        })
+        .catch(err => {
+          console.error(err);
+          alert('검색 중 문제가 발생했습니다.');
+        });
+    });
+
+    // 'submit-request' 버튼 클릭 이벤트 리스너를 async 함수로 변경
+    document.getElementById('submit-request').addEventListener('click', async () => {
+      const startEp = parseInt(document.getElementById('start-episode').value, 10);
+      const endEp = parseInt(document.getElementById('end-episode').value, 10);
+      if (isNaN(startEp) || isNaN(endEp))
+        return alert('시작 화와 마지막 화를 입력하세요.');
+      if (startEp < 1 || endEp > maxEpisode || startEp > endEp)
+        return alert(`1 ≤ 시작 화 ≤ 마지막 화 ≤ ${maxEpisode} 이어야 합니다.`);
+
+      // 페이지 분할: 15화씩 (기존 로직 유지)
+      pages = []; // 결과 배열 초기화
+      pageRanges = []; // 페이지 범위 배열 초기화
+      currentPage = 0; // 현재 페이지 인덱스 초기화
+
+      for (let i = startEp; i <= endEp; i += 15) {
+        const chunkStart = i;
+        const chunkEnd = Math.min(i + 14, endEp);
+        pageRanges.push({ start: chunkStart, end: chunkEnd });
+      }
+
+      openPopup('progress-popup');
+      const progressTextElement = document.getElementById('progress-text');
+      const collectedResults = []; // 순차적으로 받아온 요약 결과를 저장할 배열
+
+      try {
+        // pageRanges에 대해 순차적으로 fetch 요청을 보냄
+        for (let i = 0; i < pageRanges.length; i++) {
+          const range = pageRanges[i];
+          progressTextElement.textContent = `요약 진행 중... (${range.start}화 ~ ${range.end}화) [${i + 1}/${pageRanges.length}]`;
+          
+          const response = await fetch(`/php/get_summary.php?S_N=${currentWebtoonId}&start=${range.start}&end=${range.end}`);
+          
+          // HTTP 응답 상태 확인
+          if (!response.ok) {
+            let errorMsg = `HTTP 오류! 상태: ${response.status}`;
+            try {
+              // 서버에서 JSON 형태의 에러 메시지를 보냈을 수 있으므로 파싱 시도
+              const errorData = await response.json();
+              if (errorData && errorData.error) {
+                errorMsg = errorData.error;
+              }
+            } catch (e) {
+              // JSON 파싱 실패 시, 원래 HTTP 오류 메시지 사용
+            }
+            throw new Error(`[${range.start}화~${range.end}화 처리 중] ${errorMsg}`);
+          }
+          
+          const data = await response.json();
+          if (data.result) {
+            collectedResults.push(data.result);
+          } else {
+            // data.error가 있을 경우 해당 메시지 사용, 없으면 기본 메시지
+            throw new Error(`[${range.start}화~${range.end}화 처리 중] ${data.error || '요약 결과를 가져오지 못했습니다.'}`);
+          }
+        }
+
+        pages = collectedResults; // 모든 요청이 성공하면 결과를 pages에 할당
+        if (pages.length > 0) {
+          currentPage = 0; // 첫 번째 페이지(chunk)부터 보여주도록 설정
+          updateSummaryDisplay();
+          openPopup('result-popup');
+        } else if (pageRanges.length > 0) { // 요청할 페이지는 있었으나 결과가 없는 경우
+          alert('요약을 가져오지 못했습니다 (모든 구간 결과 없음).');
+          closePopup();
+        } else { // 애초에 요청할 페이지 범위가 없었던 경우 (startEp > endEp 등 - 이미 위에서 필터링되지만 방어 코드)
+            alert('요청할 화 범위가 없습니다.');
+            closePopup();
+        }
+
+      } catch (err) {
+        console.error('요청 중 오류 발생:', err);
+        alert('요약 요청 중 문제가 발생했습니다: ' + err.message);
+        closePopup(); // 오류 발생 시 팝업 닫기
+      } finally {
+        // 진행 텍스트 초기화 (옵션)
+        progressTextElement.textContent = '요약중...';
+      }
+    });
+
+    function updateSummaryDisplay() {
+      const infoEl = document.getElementById('page-info');
+      const textEl = document.getElementById('summary-text');
+      const prevBtn = document.getElementById('prev-page');
+      const nextBtn = document.getElementById('next-page');
+      
+      if (pages.length === 0 || !pageRanges[currentPage]) {
+        infoEl.textContent = '표시할 요약이 없습니다.';
+        textEl.textContent = '';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+      }
+
+      const range = pageRanges[currentPage];
+      infoEl.textContent = `Phase ${currentPage + 1}/${pages.length}: ${range.start}화~${range.end}화`;
+      textEl.textContent = pages[currentPage];
+      prevBtn.disabled = currentPage === 0;
+      nextBtn.disabled = currentPage === pages.length - 1;
+    }
+
+    document.getElementById('prev-page').addEventListener('click', () => {
+      if (currentPage > 0) {
+        currentPage--;
+        updateSummaryDisplay();
+      }
+    });
+
+    document.getElementById('next-page').addEventListener('click', () => {
+      if (currentPage < pages.length - 1) {
+        currentPage++;
+        updateSummaryDisplay();
+      }
+    });
+  </script>
+</body>
+</html>
+
+summary_main
+
+<?php
+// ----------------------------
+// (1) Gemini API 키 환경 변수 설정
+// ----------------------------
+putenv("AIzaSyCYs36VA-vB75FoP8zkjC_PAEjvEubn02U");
+
+// ----------------------------
+// (2) MySQL 연결 설정 등
+// ----------------------------
+$host = 'localhost';
+$db   = 'webtoon';
+$user = 'root';
+$pass = '123';
+
+// ----------------------------
+// (3) GET 파라미터 S_N, start, end 존재 여부 확인
+// ----------------------------
+if (isset($_GET['S_N'], $_GET['start'], $_GET['end'])) {
+    $S_N   = $_GET['S_N'];
+    $start = $_GET['start'];
+    $end   = $_GET['end'];
+
+    // ------------------------
+    // DB 연결
+    // ------------------------
+    $conn = new mysqli($host, $user, $pass, $db);
+    if ($conn->connect_error) {
+        die("Connection failed: " . $conn->connect_error);
+    }
+
+    // ------------------------
+    // webtoon_text 테이블에서 episode, line 조회
+    // ------------------------
+    $sql  = "SELECT episode, line FROM webtoon_text WHERE S_N = ? AND episode BETWEEN ? AND ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('iii', $S_N, $start, $end);
+    $stmt->execute();
+    $stmt->store_result();
+
+    // 예상 회차 수
+    $expectedCount = $end - $start + 1;
+    $numFound = $stmt->num_rows;
+
+    // ------------------------
+    // (B) DB에 데이터가 불완전한 경우 -> auto_update.py 실행하여 누락된 회차 다운로드
+    // ------------------------
+    if ($numFound < $expectedCount) {
+        $auto_update_script = '/var/www/html/Python/auto_update.py';  // 절대 경로 사용
+        $command = escapeshellcmd("python3 $auto_update_script $S_N $start $end");
+        $output  = shell_exec($command . " 2>&1");
+        error_log("Auto update script output: " . $output);
+
+        // Python 실행 후 DB 재조회
+        $stmt->execute();
+        $stmt->store_result();
+    }
+
+    // ------------------------
+    // (A) DB에 데이터가 있는 경우 -> 요약 진행
+    // ------------------------
+    $episodes = [];
+    $stmt->bind_result($episode, $line);
+    while ($stmt->fetch()) {
+        $episodes[] = "화 {$episode}: {$line}";
+    }
+
+    if (count($episodes) > 0) {
+        $input_text = implode("\n", $episodes);
+        $summary = get_gemini_summary($input_text);
+        echo json_encode(['result' => $summary]);
+    } else {
+        error_log("No data added to the database after running auto_update.py.");
+        echo json_encode(['error' => '데이터를 추가했지만 요약에 실패했습니다.']);
+    }
+
+    $stmt->close();
+    $conn->close();
+} else {
+    echo json_encode(['error' => '필요한 매개변수가 제공되지 않았습니다.']);
+}
+
+// ----------------------------
+// (4) Gemini API 요약 호출 함수
+// ----------------------------
+function get_gemini_summary($text) {
+    $api_script   = '/var/www/html/Python/summary_api.py';
+    $encoded_text = escapeshellarg($text);
+    $task_type    = escapeshellarg("summary");  // summary 작업 명시
+    $command      = "python3 $api_script $encoded_text $task_type";
+    $result       = shell_exec($command . " 2>&1");
+    error_log("Python script output: " . $result);
+    $response     = json_decode($result, true);
+    return $response['result'] ?? 'Gemini API 호출 오류';
+}
+?>
+
+get_summary.php
+
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+header('Content-Type: application/json');
+// MySQL 데이터베이스 연결 설정
+$host = 'localhost';
+$db = 'webtoon';
+$user = 'root';
+$pass = '123';
+
+// 제목으로 웹툰을 검색하여 S_N 번호를 반환하는 코드
+if (isset($_GET['title'])) {
+    $title = $_GET['title'];
+
+    // DB 연결
+    $conn = new mysqli($host, $user, $pass, $db);
+    if ($conn->connect_error) {
+        die("Connection failed: " . $conn->connect_error);
+    }
+
+    $sql = "SELECT S_N, title, day, last FROM webtoon_info WHERE title LIKE ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('s', $title);
+    $stmt->execute();
+    $stmt->store_result();
+
+    if ($stmt->num_rows > 0) {
+        $stmt->bind_result($S_N, $title, $day, $last);
+        $stmt->fetch();
+        echo json_encode(['S_N' => $S_N, 'title' => $title, 'day' => $day, 'last' => $last]);
+    } else {
+        echo json_encode(['error' => '웹툰을 찾을 수 없습니다.']);
+    }
+
+    $stmt->close();
+    $conn->close();
+}
+?>
+
+search_webtoon.php

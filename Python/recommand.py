@@ -1,87 +1,95 @@
-import openai
-import pymysql
+#!/usr/bin/env python3
+import sys
 import json
-import os
-import re
+import pymysql
 
-# GPT-3 API 설정
-def extract_keywords(user_input):
-    openai.api_key = "your_key"
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            temperature=0.7,
-            messages=[ 
-                {"role": "system", "content": "당신은 중요한 키워드를 추출하는 도우미입니다."},
-                {"role": "user", "content": f"사용자의 요청에서 핵심 키워드를 추출하세요: \"{user_input}\""}
-            ]
-        )
-        keywords = response['choices'][0]['message']['content'].strip()
-        # 키워드 중복 제거 및 단어만 추출
-        keywords = re.sub(r'[^\w\s]', '', keywords)  # 특수문자 제거
-        keyword_list = list(set(keywords.split()))
-        return keyword_list
-    except openai.error.OpenAIError as e:
-        print(f"텍스트 수정 중 오류 발생: {e}")
-        return None
-
-# 데이터베이스 설정
+# --- 데이터베이스 설정 (환경에 맞게 수정) ---
 db_config = {
     "host": "localhost",
-    "user": "webtoon_user",
-    "password": "1234",
+    "user": "root",
+    "password": "123",
     "database": "webtoon",
     "charset": "utf8mb4"
 }
 
 def search_webtoon(keywords):
-    # MySQL 연결
-    connection = pymysql.connect(
-        host=db_config["host"],
-        user=db_config["user"],
-        password=db_config["password"],
-        database=db_config["database"],
-        charset=db_config["charset"]
-    )
+    """
+    주어진 키워드(태그) 리스트를 기반으로 DB에서 웹툰을 검색하고 매칭 점수 순으로 정렬
+    """
+    # 키워드가 없는 경우, 메시지를 포함한 리스트를 반환
+    if not keywords:
+        return ["키워드가 선택되지 않았습니다."]
 
+    connection = None
     try:
+        # 데이터베이스에 연결합니다.
+        connection = pymysql.connect(**db_config)
         with connection.cursor() as cursor:
-            # 키워드를 기반으로 데이터 검색
-            keyword_condition = " OR ".join([f"tag LIKE '%{keyword}%' OR summary LIKE '%{keyword}%' OR line LIKE '%{keyword}%'" for keyword in keywords])
+            # 각 키워드에 대해 매칭 여부를 계산하여 점수로 활용하는 부분
+            select_keyword_matches = []
+            for keyword in keywords:
+                # 간단한 SQL 인젝션 방지를 위해 작은 따옴표를 이스케이프 처리합니다.
+                clean_keyword = keyword.replace("'", "''")
+                select_keyword_matches.append(f"""
+                    (CASE
+                        WHEN (wi.tag LIKE '%{clean_keyword}%' OR wi.summary LIKE '%{clean_keyword}%')
+                        THEN 1
+                        ELSE 0
+                    END)
+                """)
+
+            # WHERE 절: 선택된 키워드 중 하나라도 포함하는 웹툰을 검색 대상으로 합니다.
+            where_conditions = []
+            for keyword in keywords:
+                clean_keyword = keyword.replace("'", "''")
+                where_conditions.append(f"(wi.tag LIKE '%{clean_keyword}%' OR wi.summary LIKE '%{clean_keyword}%')")
+
+            # 최종 SQL 쿼리를 구성합니다.
             query = f"""
-                SELECT webtoon_info.title, webtoon_info.S_N, COUNT(*) AS keyword_matches
-                FROM webtoon_info
-                LEFT JOIN webtoon_text ON webtoon_info.S_N = webtoon_text.S_N
-                WHERE {keyword_condition}
-                GROUP BY webtoon_info.S_N
-                ORDER BY keyword_matches DESC
-                LIMIT 3;
+                SELECT
+                    wi.title,
+                    wi.S_N,
+                    ({ ' + '.join(select_keyword_matches) }) AS keyword_match_count
+                FROM webtoon_info wi
+                WHERE ( {' OR '.join(where_conditions)} )
+                GROUP BY wi.S_N, wi.title
+                ORDER BY keyword_match_count DESC, wi.title ASC
+                LIMIT 5;
             """
+            
             cursor.execute(query)
-            results = cursor.fetchall()  # 여러 개의 결과를 가져옴
+            results = cursor.fetchall()
+            
             if results:
-                # 상위 3개의 S_N만 추출하여 리스트로 반환
-                top_3_sn = [str(result[1]) for result in results]
-                return top_3_sn
+                # 결과에서 S_N (고유번호)만 추출하여 문자열 리스트로 반환
+                return [str(row[1]) for row in results]
             else:
-                return "추천할 웹툰을 찾을 수 없습니다."
+                # 일치하는 웹툰이 없는 경우
+                return ["선택한 태그와 일치하는 웹툰을 찾을 수 없습니다."]
+
+    except pymysql.MySQLError as e:
+        # 데이터베이스 오류 발생 시, 오류 메시지를 포함한 리스트를 반환
+        return [f"데이터베이스 검색 중 오류가 발생했습니다: {e}"]
     finally:
-        connection.close()
+        # 연결을 항상 닫습니다.
+        if connection:
+            connection.close()
 
-def recommend_webtoon(user_input):
-    keywords = extract_keywords(user_input)
-    recommended_sn = search_webtoon(keywords)
-    return recommended_sn
-
+# 이 스크립트가 직접 실행될 때만 아래 코드가 동작합니다.
 if __name__ == "__main__":
-    import sys
-    user_input = sys.argv[1]
-    recommendations = recommend_webtoon(user_input)
+    # PHP에서 전달한 인자가 없거나 비어있는 경우
+    if len(sys.argv) < 2 or not sys.argv[1]:
+        print(json.dumps({"recommended": ["추천을 원하는 태그를 선택해주세요."]}, ensure_ascii=False))
+        sys.exit(0)
+
+    # PHP로부터 쉼표로 구분된 태그 문자열을 받습니다. (예: "로맨스,회귀,능력남")
+    user_input_tags = sys.argv[1]
     
-    # S_N 값만 출력하기 위해 JSON에서 S_N 리스트로 응답
-    if isinstance(recommendations, list):
-        response = {"recommended": recommendations}
-    else:
-        response = {"recommended": [recommendations]}
+    # 받은 문자열을 쉼표 기준으로 잘라 리스트로 만듭니다.
+    keywords = [tag.strip() for tag in user_input_tags.split(',') if tag.strip()]
     
-    print(json.dumps(response, ensure_ascii=False))
+    # 웹툰 검색 함수를 호출하여 S_N 리스트를 받습니다.
+    recommendation_sn_list = search_webtoon(keywords)
+    
+    # 최종 결과를 JSON 형태로 표준 출력하여 PHP에 전달합니다.
+    print(json.dumps({"recommended": recommendation_sn_list}, ensure_ascii=False))
